@@ -51,6 +51,22 @@ if (-not (Test-Path (Join-Path $Src "pico-sdk\.git"))) {
     if ($LASTEXITCODE -ne 0) { throw "submodule init failed" }
 }
 
+# Apply our patches to the submodule. Submodule working-tree edits are not
+# tracked by this repository, so this has to happen on every build; each patch
+# is skipped if it is already applied.
+foreach ($patch in (Get-ChildItem (Join-Path $PSScriptRoot "patches") -Filter *.patch | Sort-Object Name)) {
+    git -C $Src apply --reverse --check $patch.FullName 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "==> Patch already applied: $($patch.Name)"
+        continue
+    }
+    Write-Host "==> Applying $($patch.Name)"
+    git -C $Src apply $patch.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to apply $($patch.Name). Reset the submodule with: git -C `"$Src`" checkout -- ."
+    }
+}
+
 if ($Clean -and (Test-Path $Build)) {
     Remove-Item -Recurse -Force $Build
 }

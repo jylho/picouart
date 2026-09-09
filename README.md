@@ -19,7 +19,7 @@ error-free ceiling of whichever adapter you point it at.
 | [deploy.sh](deploy.sh) | Build + flash the firmware on Linux/macOS |
 | [release.ps1](release.ps1) | Build a clean image and publish it as a GitHub release |
 | [loopback_speed.py](loopback_speed.py) | Sweep baud rates over a loopback and report the max error-free rate |
-| [patches/0001-enable-uart-fifo.patch](patches/0001-enable-uart-fifo.patch) | The FIFO change applied to the submodule |
+| [patches/](patches) | Changes applied to the submodule automatically at build time |
 | `external/pico-uart-bridge/` | Upstream firmware (git submodule) |
 
 ## Hardware
@@ -154,12 +154,18 @@ up and bytes are silently dropped. The patch:
   cannot wedge the handler.
 
 Submodule working-tree edits are not tracked by this repository, so the change
-is also kept as [patches/0001-enable-uart-fifo.patch](patches/0001-enable-uart-fifo.patch).
-After a fresh clone, reapply it with:
+lives in [patches/0001-enable-uart-fifo.patch](patches/0001-enable-uart-fifo.patch)
+instead. **The deploy scripts apply it automatically on every build**, skipping
+it when it is already applied, so a fresh clone builds patched firmware without
+any manual step.
+
+To go back to unpatched upstream:
 
 ```sh
-git -C external/pico-uart-bridge apply ../../patches/0001-enable-uart-fifo.patch
+git -C external/pico-uart-bridge checkout -- .
 ```
+
+(The next build will simply re-apply it.)
 
 ### Possible next step: DMA
 

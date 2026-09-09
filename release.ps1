@@ -33,12 +33,6 @@ if (git -C $PSScriptRoot status --porcelain --ignore-submodules=dirty) {
     throw "Working tree is dirty. Commit or stash first so the tag matches the source."
 }
 
-# Warn if the patch is not applied, so a release cannot silently ship without it.
-$bridge = Join-Path $PSScriptRoot "external\pico-uart-bridge\uart-bridge.c"
-if (-not (Select-String -Path $bridge -Pattern 'uart_set_fifo_enabled\(ui->inst, true\)' -Quiet)) {
-    throw "FIFO patch is not applied. Run: git -C external/pico-uart-bridge apply ../../patches/0001-enable-uart-fifo.patch"
-}
-
 # gh creates the tag on the remote, so the branch must be pushed first or the
 # tag would point at a stale commit.
 if (git ls-remote --tags origin "refs/tags/$Version") {
@@ -65,6 +59,14 @@ $assets = @()
 foreach ($b in $Board) {
     Write-Host "==> Building $b"
     & (Join-Path $PSScriptRoot "deploy.ps1") -Board $b -Clean -BuildOnly
+
+    # deploy.ps1 applies patches/ before building; confirm it took effect so a
+    # release can never ship unpatched firmware.
+    $bridge = Join-Path $PSScriptRoot "external\pico-uart-bridge\uart-bridge.c"
+    if (-not (Select-String -Path $bridge -Pattern 'uart_set_fifo_enabled\(ui->inst, true\)' -Quiet)) {
+        throw "FIFO patch is not applied - refusing to publish unpatched firmware."
+    }
+
     $src = Join-Path $PSScriptRoot "external\pico-uart-bridge\build\$b\uart_bridge.uf2"
     $dst = Join-Path $Dist "picouart-$Version-$b.uf2"
     Copy-Item $src $dst

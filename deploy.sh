@@ -46,6 +46,23 @@ if [[ ! -e "$SRC_DIR/pico-sdk/.git" ]]; then
 	git -C "$SRC_DIR" submodule update --init --recursive
 fi
 
+# Apply our patches to the submodule. Submodule working-tree edits are not
+# tracked by this repository, so this has to happen on every build; each patch
+# is skipped if it is already applied.
+for patch in "$SCRIPT_DIR"/patches/*.patch; do
+	[[ -e "$patch" ]] || continue
+	if git -C "$SRC_DIR" apply --reverse --check "$patch" 2>/dev/null; then
+		echo "==> Patch already applied: $(basename "$patch")"
+		continue
+	fi
+	echo "==> Applying $(basename "$patch")"
+	if ! git -C "$SRC_DIR" apply "$patch"; then
+		echo "error: failed to apply $(basename "$patch")" >&2
+		echo "Reset the submodule with: git -C '$SRC_DIR' checkout -- ." >&2
+		exit 1
+	fi
+done
+
 if [[ $CLEAN -eq 1 ]]; then
 	rm -rf "$BUILD_DIR"
 fi
