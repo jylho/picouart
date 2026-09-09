@@ -26,8 +26,16 @@ if (-not (Get-Command gh -EA SilentlyContinue)) {
 gh auth status 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Not logged in. Run: gh auth login" }
 
-if (git -C $PSScriptRoot status --porcelain) {
+# The submodule working tree is permanently modified by the FIFO patch, so
+# ignore changes inside it; a changed submodule *pointer* is still reported.
+if (git -C $PSScriptRoot status --porcelain --ignore-submodules=dirty) {
     throw "Working tree is dirty. Commit or stash first so the tag matches the source."
+}
+
+# Warn if the patch is not applied, so a release cannot silently ship without it.
+$bridge = Join-Path $PSScriptRoot "external\pico-uart-bridge\uart-bridge.c"
+if (-not (Select-String -Path $bridge -Pattern 'uart_set_fifo_enabled\(ui->inst, true\)' -Quiet)) {
+    throw "FIFO patch is not applied. Run: git -C external/pico-uart-bridge apply ../../patches/0001-enable-uart-fifo.patch"
 }
 
 $Dist = Join-Path $PSScriptRoot "dist"
