@@ -17,6 +17,7 @@ error-free ceiling of whichever adapter you point it at.
 | --- | --- |
 | [deploy.ps1](deploy.ps1) | Build + flash the firmware on Windows |
 | [deploy.sh](deploy.sh) | Build + flash the firmware on Linux/macOS |
+| [release.ps1](release.ps1) | Build a clean image and publish it as a GitHub release |
 | [loopback_speed.py](loopback_speed.py) | Sweep baud rates over a loopback and report the max error-free rate |
 | [patches/0001-enable-uart-fifo.patch](patches/0001-enable-uart-fifo.patch) | The FIFO change applied to the submodule |
 | `external/pico-uart-bridge/` | Upstream firmware (git submodule) |
@@ -106,6 +107,33 @@ to stop at the first bad rate instead of testing the whole table.
 
 Run it against your FTDI adapter first, then against the Pico, for a direct
 comparison.
+
+## Publishing a release
+
+Prebuilt `.uf2` images are attached to [GitHub releases][releases] so users can
+flash without installing a toolchain.
+
+[releases]: https://github.com/jylho/picouart/releases
+
+Requires the [GitHub CLI][gh], authenticated once:
+
+[gh]: https://cli.github.com/
+
+```powershell
+winget install --id GitHub.cli
+gh auth login
+```
+
+Then, from a clean working tree:
+
+```powershell
+.\release.ps1 -Version v0.1.0
+```
+
+[release.ps1](release.ps1) does a clean build, names the artifact
+`picouart-<version>-<board>.uf2`, writes `SHA256SUMS.txt`, creates the tag, and
+uploads everything. Use `-Draft` to review before publishing, or
+`-Board pico,pico_w` to ship images for several boards.
 
 ## The FIFO patch
 
