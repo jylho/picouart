@@ -23,10 +23,17 @@ class TestLatencyMath:
         # 10 bits per byte at 115200 baud -> 64 B takes ~5.56 ms.
         assert Latency(115200, 64).wire_ms == pytest.approx(5.5555, abs=1e-3)
 
-    def test_overhead_excludes_both_directions(self):
-        # A loopback crosses the wire twice, so subtract 2x wire time.
+    def test_overhead_excludes_wire_time(self):
+        # Full duplex: the return trip overlaps the outbound one, so wire time
+        # is subtracted once rather than twice.
         lat = Latency(115200, 64, samples=[20.0])
-        assert lat.overhead == pytest.approx(20.0 - 2 * lat.wire_ms)
+        assert lat.overhead == pytest.approx(20.0 - lat.wire_ms)
+
+    def test_overhead_is_not_negative_for_a_pure_wire_time_round_trip(self):
+        # A round trip can legitimately be about one wire time; that must read
+        # as ~zero overhead, not a large negative number.
+        lat = Latency(115200, 64, samples=[Latency(115200, 64).wire_ms])
+        assert lat.overhead == pytest.approx(0.0, abs=1e-9)
 
     def test_jitter_is_spread(self):
         assert Latency(115200, 1, samples=[1.0, 4.0, 2.0]).jitter == 3.0
@@ -64,7 +71,7 @@ def test_latency_is_dominated_by_overhead_not_baud(port, latency_baud, latency_i
     large = measure_latency(port, latency_baud, 64, latency_iterations)
     assert small.ok and large.ok, f"{small.detail}{large.detail}"
 
-    extra_wire_ms = 2 * (large.wire_ms - small.wire_ms)
+    extra_wire_ms = large.wire_ms - small.wire_ms
     growth = large.median - small.median
     assert growth <= extra_wire_ms + 5.0, (
         f"64 B took {growth:.2f} ms longer than 1 B, but only "

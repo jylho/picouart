@@ -19,6 +19,7 @@ error-free ceiling of whichever adapter you point it at.
 | [deploy.sh](deploy.sh) | Build + flash the firmware on Linux/macOS |
 | [release.ps1](release.ps1) | Build a clean image and publish it as a GitHub release |
 | [loopback.py](loopback.py) | Loopback measurement logic, shared by the CLI and the tests |
+| [ports.py](ports.py) | Port selection: `.env`, environment, USB auto-detection |
 | [loopback_speed.py](loopback_speed.py) | Sweep baud rates over a loopback and report the max error-free rate |
 | [tests/](tests) | The same checks as a pytest suite, plus small-frame latency |
 | [patches/](patches) | Changes applied to the submodule automatically at build time |
@@ -101,6 +102,41 @@ pip install -r requirements.txt
 python loopback_speed.py --port /dev/ttyACM0
 ```
 
+### Choosing the port
+
+Port names are not stable — `COM11` depends on enumeration order and moves when
+devices are replugged. `--port` is therefore optional, and the port is resolved
+in this order:
+
+1. an explicit `--port`
+2. the `PICOUART_PORT` environment variable
+3. `PICOUART_PORT` in a `.env` file in the repo root
+4. auto-detection of an attached Pico by USB VID:PID
+
+So the usual setup is once:
+
+```sh
+cp .env.example .env     # then edit PICOUART_PORT
+```
+
+after which `python loopback_speed.py` and `pytest` need no arguments. `.env`
+is gitignored. Use `--port auto` to force detection even when `.env` is set.
+
+To see what is attached, with known adapters named:
+
+```sh
+python loopback_speed.py --list-ports
+```
+
+```
+  COM11  Raspberry Pi Pico (pico-uart-bridge)
+  COM12  Raspberry Pi Pico (pico-uart-bridge)
+  COM9   FTDI FT232
+```
+
+Auto-detection deliberately fails rather than guessing when several boards are
+attached, and lists the candidates.
+
 The script writes random bytes, reads them back, and on failure reports the
 first differing offset with hex and binary context, whether the stream was
 truncated or picked up extra bytes, whether the driver silently coerced the
@@ -117,15 +153,15 @@ handier for regression runs and CI-style reporting:
 
 ```sh
 pytest --port COM11                          # all rates
-pytest --port /dev/ttyACM0 --max-baud 1000000
-pytest --port COM11 -v --junitxml=report.xml # throughput in the XML
+pytest --max-baud 1000000                    # port from .env or auto-detect
+pytest -v --junitxml=report.xml              # throughput in the XML
 ```
 
 Options: `--port`, `--bytes`, `--trials`, `--max-baud`.
 
 Tests that need hardware are marked `hardware` and are skipped automatically
-when `--port` is omitted, so a bare `pytest` still runs the pure-data tests and
-passes.
+when no port can be resolved, so a bare `pytest` still runs the pure-data tests
+and passes.
 
 ### Latency
 
@@ -136,16 +172,28 @@ latency timer** by default, capping them near 60 transactions/sec no matter
 what baud rate you set.
 
 ```sh
-pytest tests/test_latency.py --port COM11
-pytest tests/test_latency.py --port COM11 --latency-baud 921600
+pytest tests/test_latency.py
+pytest tests/test_latency.py --latency-baud 921600
 ```
 
 Each frame size from 1 to 64 bytes is timed over many round trips, reporting
-best, median, worst, and the overhead above the unavoidable wire time. Two
-things are asserted: the median stays under `--max-latency-ms` (10 ms by
-default, which a stock FTDI fails and the Pico passes), and latency does not
-grow with frame size beyond the extra wire time — if it does, something is
-chunking the stream.
+best, median, worst, and the overhead above the unavoidable wire time. (Wire
+time counts once, not twice: a loopback is full duplex, so the return trip
+overlaps the outbound one.) Two things are asserted: the median stays under
+`--max-latency-ms` (10 ms by default, which a stock FTDI fails and the Pico
+passes), and latency does not grow with frame size beyond the extra wire time —
+if it does, something is chunking the stream.
+
+For reference, the patched Pico bridge at 115200 baud:
+
+| Frame | Median | Wire time | Overhead |
+| --- | --- | --- | --- |
+| 1 B | 0.47 ms | 0.09 ms | 0.39 ms |
+| 8 B | 0.83 ms | 0.69 ms | 0.14 ms |
+| 64 B | 5.74 ms | 5.56 ms | 0.19 ms |
+
+Overhead stays around 0.2 ms regardless of frame size, versus the 16 ms an
+FTDI's default latency timer adds to every transaction.
 
 Options: `--latency-baud`, `--latency-iterations`, `--max-latency-ms`.
 

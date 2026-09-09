@@ -160,8 +160,13 @@ class Latency:
 
     @property
     def overhead(self) -> float:
-        """Median round trip minus wire time: the adapter's own delay."""
-        return self.median - 2 * self.wire_ms
+        """Median round trip minus wire time: the adapter's own delay.
+
+        Wire time counts once, not twice. A loopback is full duplex, so the
+        first byte is already coming back while the last is still going out;
+        the two directions overlap rather than add.
+        """
+        return self.median - self.wire_ms
 
 
 def measure_latency(

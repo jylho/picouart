@@ -4,3 +4,5 @@ __pycache__/
 external/pico-uart-bridge/build/
 dist/
 .pytest_cache/
+.env
+.vscode/

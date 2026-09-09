@@ -1,10 +1,16 @@
 import pytest
 
 from loopback import BAUDS, FRAME_SIZES
+from ports import resolve_port
 
 
 def pytest_addoption(parser):
-    parser.addoption("--port", default=None, help="serial port with a TX-RX loopback, e.g. COM11 or /dev/ttyACM0")
+    parser.addoption(
+        "--port",
+        default=None,
+        help="serial port with a TX-RX loopback, e.g. COM11 or /dev/ttyACM0 "
+             "(default: PICOUART_PORT, .env, then USB auto-detection)",
+    )
     parser.addoption("--bytes", type=int, default=4096, help="payload size per trial")
     parser.addoption("--trials", type=int, default=3, help="write/read round trips per baud")
     parser.addoption("--max-baud", type=int, default=None, help="skip rates above this")
@@ -21,12 +27,20 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     config.addinivalue_line("markers", "hardware: requires a serial port with a loopback")
 
+    # Resolve once, so every test sees the same port and detection runs once.
+    try:
+        config.picouart_port = resolve_port(config.getoption("--port"))
+        config.picouart_port_error = None
+    except RuntimeError as exc:
+        config.picouart_port = None
+        config.picouart_port_error = str(exc)
+
 
 def pytest_collection_modifyitems(config, items):
-    """Skip hardware tests unless --port is given, so a bare `pytest` still passes."""
-    if config.getoption("--port"):
+    """Skip hardware tests when no port is available, so a bare `pytest` passes."""
+    if config.picouart_port:
         return
-    skip = pytest.mark.skip(reason="needs --port (e.g. pytest --port COM11)")
+    skip = pytest.mark.skip(reason="no serial port (pass --port, set PICOUART_PORT, or attach a Pico)")
     for item in items:
         if "hardware" in item.keywords:
             item.add_marker(skip)
@@ -34,10 +48,9 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session")
 def port(request):
-    value = request.config.getoption("--port")
-    if not value:
-        pytest.skip("no --port given")
-    return value
+    if not request.config.picouart_port:
+        pytest.skip(request.config.picouart_port_error or "no serial port")
+    return request.config.picouart_port
 
 
 @pytest.fixture(scope="session")
