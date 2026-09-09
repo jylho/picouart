@@ -15,6 +15,7 @@ param(
     [Parameter(Mandatory)][string]$Version,
     [string[]]$Board = @("pico"),
     [switch]$Draft,
+    [switch]$NoPush,
     [string]$Notes
 )
 
@@ -36,6 +37,24 @@ if (git -C $PSScriptRoot status --porcelain --ignore-submodules=dirty) {
 $bridge = Join-Path $PSScriptRoot "external\pico-uart-bridge\uart-bridge.c"
 if (-not (Select-String -Path $bridge -Pattern 'uart_set_fifo_enabled\(ui->inst, true\)' -Quiet)) {
     throw "FIFO patch is not applied. Run: git -C external/pico-uart-bridge apply ../../patches/0001-enable-uart-fifo.patch"
+}
+
+# gh creates the tag on the remote, so the branch must be pushed first or the
+# tag would point at a stale commit.
+if (git ls-remote --tags origin "refs/tags/$Version") {
+    throw "Tag $Version already exists on origin. Pick a new version, or delete it with: gh release delete $Version --cleanup-tag"
+}
+
+if (-not $NoPush) {
+    Write-Host "==> Pushing main"
+    git -C $PSScriptRoot push origin HEAD
+    if ($LASTEXITCODE -ne 0) { throw "git push failed" }
+}
+
+$local = (git -C $PSScriptRoot rev-parse HEAD).Trim()
+$remote = (git -C $PSScriptRoot rev-parse '@{u}' 2>$null).Trim()
+if ($local -ne $remote) {
+    throw "HEAD ($($local.Substring(0,7))) is not pushed. The tag would point at the wrong commit."
 }
 
 $Dist = Join-Path $PSScriptRoot "dist"
@@ -60,23 +79,30 @@ Get-FileHash $assets -Algorithm SHA256 |
 $assets += $sums
 
 if (-not $Notes) {
-    $Notes = @"
+    $Notes = @'
 UART bridge firmware with the hardware FIFOs enabled.
 
-Flash: hold BOOTSEL while plugging in the Pico, then copy the ``.uf2`` to the
-``RPI-RP2`` drive. The board then exposes two serial ports (UART0 on GP16/GP17,
+Flash: hold BOOTSEL while plugging in the Pico, then copy the `.uf2` to the
+`RPI-RP2` drive. The board then exposes two serial ports (UART0 on GP16/GP17,
 UART1 on GP4/GP5).
 
-Verify the download against ``SHA256SUMS.txt``.
-"@
+Verify the download against `SHA256SUMS.txt`.
+'@
 }
 
-$args = @("release", "create", $Version, "--title", "picouart $Version", "--notes", $Notes)
-if ($Draft) { $args += "--draft" }
+# Note: $args is an automatic variable, so use a distinct name.
+$ghArgs = @(
+    "release", "create", $Version,
+    "--title", "picouart $Version",
+    "--notes", $Notes,
+    "--target", $local
+)
+if ($Draft) { $ghArgs += "--draft" }
 
 Write-Host "==> Creating release $Version"
-gh @args @assets
+gh @ghArgs @assets
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 
 Write-Host "==> Published:"
 $assets | ForEach-Object { Write-Host "    $(Split-Path $_ -Leaf)" }
+gh release view $Version --json url --jq .url
