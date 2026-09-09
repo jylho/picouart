@@ -18,7 +18,9 @@ error-free ceiling of whichever adapter you point it at.
 | [deploy.ps1](deploy.ps1) | Build + flash the firmware on Windows |
 | [deploy.sh](deploy.sh) | Build + flash the firmware on Linux/macOS |
 | [release.ps1](release.ps1) | Build a clean image and publish it as a GitHub release |
+| [loopback.py](loopback.py) | Loopback measurement logic, shared by the CLI and the tests |
 | [loopback_speed.py](loopback_speed.py) | Sweep baud rates over a loopback and report the max error-free rate |
+| [tests/](tests) | The same checks as a pytest suite |
 | [patches/](patches) | Changes applied to the submodule automatically at build time |
 | `external/pico-uart-bridge/` | Upstream firmware (git submodule) |
 
@@ -107,6 +109,23 @@ to stop at the first bad rate instead of testing the whole table.
 
 Run it against your FTDI adapter first, then against the Pico, for a direct
 comparison.
+
+### As a test suite
+
+The same checks are also a pytest suite, one test per baud rate, which is
+handier for regression runs and CI-style reporting:
+
+```sh
+pytest --port COM11                          # all rates
+pytest --port /dev/ttyACM0 --max-baud 1000000
+pytest --port COM11 -v --junitxml=report.xml # throughput in the XML
+```
+
+Options: `--port`, `--bytes`, `--trials`, `--max-baud`.
+
+Tests that need hardware are marked `hardware` and are skipped automatically
+when `--port` is omitted, so a bare `pytest` still runs the pure-data tests and
+passes.
 
 ## Publishing a release
 
