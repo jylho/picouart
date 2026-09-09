@@ -130,10 +130,15 @@ Then, from a clean working tree:
 .\release.ps1 -Version v0.1.0
 ```
 
-[release.ps1](release.ps1) does a clean build, names the artifact
-`picouart-<version>-<board>.uf2`, writes `SHA256SUMS.txt`, creates the tag, and
-uploads everything. Use `-Draft` to review before publishing, or
-`-Board pico,pico_w` to ship images for several boards.
+[release.ps1](release.ps1) is the whole process in one command: it pushes the
+current branch, does a clean build, names the artifact
+`picouart-<version>-<board>.uf2`, writes `SHA256SUMS.txt`, creates the tag
+pinned to `HEAD`, and uploads everything.
+
+It refuses to run if the working tree is dirty, if the FIFO patch is missing,
+or if the tag already exists, so a release always matches its source. Use
+`-Draft` to review before publishing, `-Board pico,pico_w` to ship images for
+several boards, or `-NoPush` if the branch is already pushed.
 
 ## The FIFO patch
 
