@@ -1,6 +1,6 @@
 import pytest
 
-from loopback import BAUDS
+from loopback import BAUDS, FRAME_SIZES
 
 
 def pytest_addoption(parser):
@@ -8,6 +8,14 @@ def pytest_addoption(parser):
     parser.addoption("--bytes", type=int, default=4096, help="payload size per trial")
     parser.addoption("--trials", type=int, default=3, help="write/read round trips per baud")
     parser.addoption("--max-baud", type=int, default=None, help="skip rates above this")
+    parser.addoption("--latency-baud", type=int, default=115200, help="baud rate used for latency tests")
+    parser.addoption("--latency-iterations", type=int, default=50, help="round trips timed per frame size")
+    parser.addoption(
+        "--max-latency-ms",
+        type=float,
+        default=10.0,
+        help="fail if the median round trip exceeds this (FTDI defaults to a 16 ms latency timer)",
+    )
 
 
 def pytest_configure(config):
@@ -45,10 +53,29 @@ def payload(request):
     return make_payload(request.config.getoption("--bytes"))
 
 
+@pytest.fixture(scope="session")
+def latency_baud(request):
+    return request.config.getoption("--latency-baud")
+
+
+@pytest.fixture(scope="session")
+def latency_iterations(request):
+    return request.config.getoption("--latency-iterations")
+
+
+@pytest.fixture(scope="session")
+def max_latency_ms(request):
+    return request.config.getoption("--max-latency-ms")
+
+
 def pytest_generate_tests(metafunc):
-    """Parametrize over baud rates so each gets its own pass/fail line."""
-    if "baud" not in metafunc.fixturenames:
-        return
-    cap = metafunc.config.getoption("--max-baud")
-    bauds = [b for b in BAUDS if cap is None or b <= cap]
-    metafunc.parametrize("baud", bauds, ids=[f"{b}baud" for b in bauds])
+    """Parametrize over baud rates and frame sizes, one test each."""
+    if "baud" in metafunc.fixturenames:
+        cap = metafunc.config.getoption("--max-baud")
+        bauds = [b for b in BAUDS if cap is None or b <= cap]
+        metafunc.parametrize("baud", bauds, ids=[f"{b}baud" for b in bauds])
+
+    if "frame_size" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "frame_size", FRAME_SIZES, ids=[f"{n}B" for n in FRAME_SIZES]
+        )

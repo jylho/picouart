@@ -5,9 +5,10 @@ straight back. Any difference is a fault in the adapter, driver, or wiring.
 """
 
 import os
+import statistics
 import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import serial
 
@@ -16,6 +17,10 @@ BAUDS = [
     500000, 576000, 921600, 1000000, 1500000, 2000000,
     3000000, 4000000, 6000000, 8000000, 12000000,
 ]
+
+# Frame sizes that matter for request/response protocols, where the cost is
+# per-transaction latency rather than throughput.
+FRAME_SIZES = [1, 2, 4, 8, 16, 32, 64]
 
 
 @dataclass
@@ -117,3 +122,102 @@ def check_baud(port: str, baud: int, payload: bytes, trials: int = 3) -> Result:
 def make_payload(size: int) -> bytes:
     """Random data, so a stuck or repeating line cannot pass by accident."""
     return os.urandom(size)
+
+
+@dataclass
+class Latency:
+    """Round-trip times for one frame size, in milliseconds."""
+
+    baud: int
+    size: int
+    samples: list[float] = field(default_factory=list)
+    detail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.samples)
+
+    @property
+    def wire_ms(self) -> float:
+        """Time the bits themselves occupy at 8N1 - the unavoidable part."""
+        return self.size * 10 / self.baud * 1000
+
+    @property
+    def best(self) -> float:
+        return min(self.samples)
+
+    @property
+    def median(self) -> float:
+        return statistics.median(self.samples)
+
+    @property
+    def worst(self) -> float:
+        return max(self.samples)
+
+    @property
+    def jitter(self) -> float:
+        return self.worst - self.best
+
+    @property
+    def overhead(self) -> float:
+        """Median round trip minus wire time: the adapter's own delay."""
+        return self.median - 2 * self.wire_ms
+
+
+def measure_latency(
+    port: str,
+    baud: int,
+    size: int,
+    iterations: int = 50,
+    warmup: int = 5,
+) -> Latency:
+    """Time write->read round trips for a small frame.
+
+    This is what request/response protocols actually feel. USB adapters buffer
+    aggressively, so a device can have excellent throughput and still be
+    unusable interactively: FTDI parts ship with a 16 ms latency timer, which
+    caps them near 60 transactions/sec regardless of baud rate.
+    """
+    result = Latency(baud, size)
+    payload = make_payload(size)
+    # Generous per-frame timeout; a stalled read should fail, not hang.
+    timeout = max(0.5, size * 10 / baud * 50)
+
+    try:
+        ser = serial.Serial(port, baud, timeout=timeout, write_timeout=timeout)
+    except (serial.SerialException, ValueError, OSError):
+        result.detail = "    open failed:\n" + traceback.format_exc()
+        return result
+
+    try:
+        time.sleep(0.05)
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+
+        for i in range(warmup + iterations):
+            start = time.perf_counter()
+            ser.write(payload)
+            ser.flush()
+            got = ser.read(size)
+            elapsed = (time.perf_counter() - start) * 1000
+
+            if got != payload:
+                result.samples.clear()
+                result.detail = (
+                    f"    iteration {i}: data mismatch\n"
+                    + describe_mismatch(payload, got)
+                )
+                return result
+
+            # Discard warmup: the first frames pay for buffer allocation and
+            # USB pipe setup, which is not representative.
+            if i >= warmup:
+                result.samples.append(elapsed)
+
+        return result
+    except (serial.SerialException, OSError):
+        result.samples.clear()
+        result.detail = "    exception during transfer:\n" + traceback.format_exc()
+        return result
+    finally:
+        ser.close()

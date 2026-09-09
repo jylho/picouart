@@ -20,7 +20,7 @@ error-free ceiling of whichever adapter you point it at.
 | [release.ps1](release.ps1) | Build a clean image and publish it as a GitHub release |
 | [loopback.py](loopback.py) | Loopback measurement logic, shared by the CLI and the tests |
 | [loopback_speed.py](loopback_speed.py) | Sweep baud rates over a loopback and report the max error-free rate |
-| [tests/](tests) | The same checks as a pytest suite |
+| [tests/](tests) | The same checks as a pytest suite, plus small-frame latency |
 | [patches/](patches) | Changes applied to the submodule automatically at build time |
 | `external/pico-uart-bridge/` | Upstream firmware (git submodule) |
 
@@ -126,6 +126,28 @@ Options: `--port`, `--bytes`, `--trials`, `--max-baud`.
 Tests that need hardware are marked `hardware` and are skipped automatically
 when `--port` is omitted, so a bare `pytest` still runs the pure-data tests and
 passes.
+
+### Latency
+
+Throughput is only half the story. An adapter can stream megabytes per second
+and still take 16 ms to turn around a single byte, which is what
+request/response protocols actually feel. FTDI parts ship with a **16 ms
+latency timer** by default, capping them near 60 transactions/sec no matter
+what baud rate you set.
+
+```sh
+pytest tests/test_latency.py --port COM11
+pytest tests/test_latency.py --port COM11 --latency-baud 921600
+```
+
+Each frame size from 1 to 64 bytes is timed over many round trips, reporting
+best, median, worst, and the overhead above the unavoidable wire time. Two
+things are asserted: the median stays under `--max-latency-ms` (10 ms by
+default, which a stock FTDI fails and the Pico passes), and latency does not
+grow with frame size beyond the extra wire time — if it does, something is
+chunking the stream.
+
+Options: `--latency-baud`, `--latency-iterations`, `--max-latency-ms`.
 
 ## Publishing a release
 
