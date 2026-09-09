@@ -1,0 +1,51 @@
+diff --git a/uart-bridge.c b/uart-bridge.c
+index c4e0805..968fbe4 100644
+--- a/uart-bridge.c
++++ b/uart-bridge.c
+@@ -217,6 +217,14 @@ static inline void uart_read_bytes(uint8_t itf)
+ 
+ 		mutex_exit(&ud->uart_mtx);
+ 	}
++
++	/*
++	 * Clear the RX timeout / overrun latches. With the FIFO enabled the
++	 * timeout IRQ (RTIS) stays asserted until acknowledged, and an overrun
++	 * (OERIS) would otherwise wedge the handler in a loop.
++	 */
++	uart_get_hw(ui->inst)->icr = UART_UARTICR_RTIC_BITS |
++				     UART_UARTICR_OEIC_BITS;
+ }
+ 
+ void uart0_irq_fn(void)
+@@ -289,12 +297,30 @@ void init_uart_data(uint8_t itf)
+ 	uart_set_format(ui->inst, databits_usb2uart(ud->usb_lc.data_bits),
+ 			stopbits_usb2uart(ud->usb_lc.stop_bits),
+ 			parity_usb2uart(ud->usb_lc.parity));
+-	uart_set_fifo_enabled(ui->inst, false);
++
++	/*
++	 * Enable the 32-entry hardware FIFOs. Upstream runs FIFO-less, which
++	 * costs one IRQ per received character and drops bytes above ~1 Mbaud.
++	 * The RX FIFO is drained when it is 1/2 full, or by the RX timeout
++	 * interrupt when the line goes idle for 32 bit periods.
++	 */
++	uart_set_fifo_enabled(ui->inst, true);
++	hw_write_masked(&uart_get_hw(ui->inst)->ifls,
++			2u << UART_UARTIFLS_RXIFLSEL_LSB,
++			UART_UARTIFLS_RXIFLSEL_BITS);
+ 
+ 	/* UART RX Interrupt */
+ 	irq_set_exclusive_handler(ui->irq, ui->irq_fn);
+ 	irq_set_enabled(ui->irq, true);
+ 	uart_set_irq_enables(ui->inst, true, false);
++
++	/*
++	 * uart_set_irq_enables() only arms RXIM, which with a FIFO would leave
++	 * a partial burst sitting in hardware forever. Also arm the receive
++	 * timeout and overrun interrupts.
++	 */
++	hw_set_bits(&uart_get_hw(ui->inst)->imsc,
++		    UART_UARTIMSC_RTIM_BITS | UART_UARTIMSC_OEIM_BITS);
+ }
+ 
+ int main(void)
