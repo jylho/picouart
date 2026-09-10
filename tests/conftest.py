@@ -1,7 +1,8 @@
 import pytest
+from serial.tools import list_ports
 
 from loopback import BAUDS, FRAME_SIZES
-from ports import resolve_port
+from ports import list_candidates, resolve_port
 
 
 def pytest_addoption(parser):
@@ -29,18 +30,33 @@ def pytest_configure(config):
 
     # Resolve once, so every test sees the same port and detection runs once.
     try:
-        config.picouart_port = resolve_port(config.getoption("--port"))
-        config.picouart_port_error = None
+        resolved = resolve_port(config.getoption("--port"))
     except RuntimeError as exc:
         config.picouart_port = None
         config.picouart_port_error = str(exc)
+        return
+
+    # A configured port can name a device that is no longer attached, e.g. a
+    # stale .env after a replug. That is an absent device, not a test failure,
+    # so treat it the same as having no port at all.
+    if resolved not in {p.device for p in list_ports.comports()}:
+        config.picouart_port = None
+        config.picouart_port_error = (
+            f"{resolved} is not attached. Attached ports:\n"
+            + "\n".join(list_candidates())
+        )
+        return
+
+    config.picouart_port = resolved
+    config.picouart_port_error = None
 
 
 def pytest_collection_modifyitems(config, items):
     """Skip hardware tests when no port is available, so a bare `pytest` passes."""
     if config.picouart_port:
         return
-    skip = pytest.mark.skip(reason="no serial port (pass --port, set PICOUART_PORT, or attach a Pico)")
+    reason = config.picouart_port_error or "no serial port available"
+    skip = pytest.mark.skip(reason=reason.splitlines()[0])
     for item in items:
         if "hardware" in item.keywords:
             item.add_marker(skip)

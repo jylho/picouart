@@ -71,13 +71,23 @@ def load_dotenv(path: Path = ENV_FILE) -> dict[str, str]:
     return values
 
 
+def is_fifo_build(p) -> bool:
+    """Whether this port reports the patched firmware's product string.
+
+    The VID:PID is shared by every Pico SDK CDC project, so it cannot tell a
+    FIFO-enabled build from a stock one. The USB product string can.
+    """
+    return "FIFO" in (p.product or "")
+
+
 def describe(p) -> str:
     name = KNOWN_DEVICES.get((p.vid, p.pid))
     if name:
         idx = uart_index(p)
         if idx is not None and (p.vid, p.pid) in PICO_IDS:
             pins = {0: "GP16/GP17", 1: "GP4/GP5"}.get(idx, "?")
-            return f"{p.device}  {name}  UART{idx} ({pins})"
+            build = p.product if is_fifo_build(p) else name
+            return f"{p.device}  {build}  UART{idx} ({pins})"
         return f"{p.device}  {name}"
     if p.vid is not None:
         return f"{p.device}  {p.description} [{p.vid:04X}:{p.pid:04X}]"
