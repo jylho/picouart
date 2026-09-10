@@ -29,10 +29,28 @@ error-free ceiling of whichever adapter you point it at.
 
 The Pico exposes **two** independent bridges over a single USB cable:
 
-| Interface | TX | RX | Appears as (Linux) | Appears as (Windows) |
-| --- | --- | --- | --- | --- |
-| UART0 | GP16 | GP17 | `/dev/ttyACM0` | first new COM port |
-| UART1 | GP4 | GP5 | `/dev/ttyACM1` | second new COM port |
+| Bridge | USB interface | TX | RX |
+| --- | --- | --- | --- |
+| UART0 | CDC 0 (`x.0`) | GP16 (pin 21) | GP17 (pin 22) |
+| UART1 | CDC 1 (`x.2`) | GP4 (pin 6) | GP5 (pin 7) |
+
+**Do not assume the lower port number is UART0.** Windows in particular hands
+out COM numbers in whatever order it likes; on the machine this was written on,
+UART0 landed on the *higher* of the two. Match on the USB interface instead,
+which is stable:
+
+```sh
+python -c "from serial.tools import list_ports; [print(p.device, p.location) for p in list_ports.comports() if p.vid == 0x2E8A]"
+```
+
+```
+COM13 1-8.2:x.2      <- UART1, GP4/GP5
+COM14 1-8.2:x.0      <- UART0, GP16/GP17
+```
+
+The interface suffix is `x.0` for UART0 and `x.2` for UART1 (each CDC port
+claims two USB interfaces). On Linux the same information is in
+`/dev/serial/by-id/`, whose names are stable across replugs.
 
 The onboard LED lights while a host has a CDC port open.
 

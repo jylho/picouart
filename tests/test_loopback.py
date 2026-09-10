@@ -43,18 +43,14 @@ class TestResult:
 
 
 @pytest.mark.hardware
-def test_loopback_at_baud(port, baud, payload, trials):
-    """Data written to the port must come back byte-identical."""
-    r = check_baud(port, baud, payload, trials)
-    assert r.ok, f"{baud} baud failed:\n{r.detail}"
+def test_loopback_at_baud(port, baud, payload, trials, record_property):
+    """Data written to the port must come back byte-identical.
 
-
-@pytest.mark.hardware
-def test_reports_throughput(port, baud, payload, trials, record_property):
-    """Record achieved throughput so `-v` and JUnit XML show the numbers."""
+    Throughput is recorded from the same run rather than measured again, so
+    `-v` and JUnit XML show the numbers without doubling the time on the wire.
+    """
     r = check_baud(port, baud, payload, trials)
-    if not r.ok:
-        pytest.skip("baud rate not usable; see test_loopback_at_baud")
+    assert r.ok, f"{baud} baud failed on {port}:\n{r.detail}"
+
     record_property("bytes_per_sec", round(r.throughput))
     record_property("efficiency", round(r.efficiency, 3))
-    assert r.throughput > 0

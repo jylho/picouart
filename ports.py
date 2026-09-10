@@ -34,6 +34,26 @@ KNOWN_DEVICES = {
 PICO_IDS = {(0x2E8A, 0x000A), (0x2E8A, 0x0005)}
 
 
+def uart_index(p) -> int | None:
+    """Which bridge a Pico CDC port belongs to, from its USB interface.
+
+    Each CDC port claims two USB interfaces, so UART0 is interface 0 and UART1
+    is interface 2. This is stable; the COM/ttyACM number is not - Windows can
+    and does assign the lower number to the second interface.
+    """
+    location = p.location or ""
+    _, _, suffix = location.rpartition(".")
+    if not suffix.isdigit():
+        return None
+    return int(suffix) // 2
+
+
+def sort_key(p):
+    """Order by USB interface when known, falling back to the device name."""
+    idx = uart_index(p)
+    return (idx if idx is not None else 99, p.device)
+
+
 def load_dotenv(path: Path = ENV_FILE) -> dict[str, str]:
     """Parse a minimal KEY=VALUE .env file. Missing file is not an error."""
     values: dict[str, str] = {}
@@ -54,6 +74,10 @@ def load_dotenv(path: Path = ENV_FILE) -> dict[str, str]:
 def describe(p) -> str:
     name = KNOWN_DEVICES.get((p.vid, p.pid))
     if name:
+        idx = uart_index(p)
+        if idx is not None and (p.vid, p.pid) in PICO_IDS:
+            pins = {0: "GP16/GP17", 1: "GP4/GP5"}.get(idx, "?")
+            return f"{p.device}  {name}  UART{idx} ({pins})"
         return f"{p.device}  {name}"
     if p.vid is not None:
         return f"{p.device}  {p.description} [{p.vid:04X}:{p.pid:04X}]"
@@ -77,7 +101,7 @@ def autodetect() -> str:
     """
     picos = sorted(
         (p for p in list_ports.comports() if (p.vid, p.pid) in PICO_IDS),
-        key=lambda p: p.device,
+        key=sort_key,
     )
 
     if not picos:
@@ -94,7 +118,8 @@ def autodetect() -> str:
             + "\n".join("  " + describe(p) for p in picos)
         )
 
-    # One board, two interfaces: UART0 enumerates first.
+    # One board: pick UART0, which is USB interface 0 regardless of the port
+    # number the OS assigned.
     return picos[0].device
 
 
