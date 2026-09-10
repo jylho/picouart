@@ -42,6 +42,49 @@ class Result:
         return self.throughput / self.line_rate if self.line_rate else 0.0
 
 
+def bits_per_byte(parity: str = "N", stopbits: float = 1, databits: int = 8) -> int:
+    """Bits actually spent on the wire per byte.
+
+    One start bit, the data bits, an optional parity bit, and the stop bits.
+    8N1 is the familiar 10; adding parity or a second stop bit makes it 11.
+    """
+    return 1 + databits + (0 if parity == "N" else 1) + int(stopbits)
+
+
+def timed_transfer(
+    port: str,
+    baud: int,
+    payload: bytes,
+    parity: str = "N",
+    stopbits: float = 1,
+) -> tuple[bytes, float]:
+    """Send `payload` and read it back, returning (received, seconds).
+
+    Used to check that line coding is really applied. A loopback shares one
+    UART, so TX and RX always agree with each other: if the bridge ignored the
+    requested settings entirely, a byte-for-byte comparison would still pass.
+    Only elapsed time reveals what the wire actually did.
+    """
+    ser = serial.Serial(
+        port,
+        baud,
+        parity=parity,
+        stopbits=stopbits,
+        timeout=max(2.0, len(payload) * 12 / baud * 10),
+    )
+    try:
+        time.sleep(0.2)
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+        start = time.perf_counter()
+        ser.write(payload)
+        ser.flush()
+        got = ser.read(len(payload))
+        return got, time.perf_counter() - start
+    finally:
+        ser.close()
+
+
 def describe_mismatch(sent: bytes, got: bytes) -> str:
     """Human-readable description of the first difference."""
     if len(got) != len(sent):

@@ -215,6 +215,38 @@ FTDI's default latency timer adds to every transaction.
 
 Options: `--latency-baud`, `--latency-iterations`, `--max-latency-ms`.
 
+### Baud rate and line coding
+
+The bridge passes USB CDC line coding through to the UART, so baud rate,
+parity, data bits and stop bits all follow whatever your host app requests.
+
+Verifying that is less obvious than it looks: a loopback shares one UART, so TX
+and RX always agree with each other. If the firmware ignored the requested
+settings entirely and stayed at its power-on default, every byte-for-byte check
+above would still pass. Only timing proves it, because the wire spends a fixed
+number of bits per byte:
+
+```sh
+pytest tests/test_line_coding.py
+```
+
+Measured on the patched firmware, 8192 bytes at 115200 baud:
+
+| Coding | Bits/byte | Measured | Elapsed |
+| --- | --- | --- | --- |
+| 8N1 | 10 | 10.00 | 0.711 s |
+| 8E1 | 11 | 11.00 | 0.783 s |
+| 8O1 | 11 | 11.00 | 0.782 s |
+| 8N2 | 11 | 11.00 | 0.782 s |
+| 8E2 | 12 | 12.01 | 0.853 s |
+
+Note that two stop bits costs one extra bit, not two: a frame is 1 start + 8
+data + optional parity + stop bits. Requested baud rates land within 0.5% of
+the target from 115200 up to 921600.
+
+The measurement tooling itself always uses 8N1; these tests exercise the other
+codings directly.
+
 ## Publishing a release
 
 Prebuilt `.uf2` images are attached to [GitHub releases][releases] so users can
